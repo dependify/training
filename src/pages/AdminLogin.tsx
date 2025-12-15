@@ -39,7 +39,7 @@ export default function AdminLogin() {
       if (isSignUp) {
         const r = await fetch("/api/admin/seed", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: data.email, password: data.password }) })
         if (!r.ok) {
-          let errorMsg = "Sign up failed"
+          let errorMsg = `Sign up failed: ${r.status} ${r.statusText}`
           try {
             const errJson = await r.json()
             if (errJson.error) errorMsg = errJson.error
@@ -52,7 +52,7 @@ export default function AdminLogin() {
       } else {
         const r = await fetch("/api/admin/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: data.email, password: data.password }) })
         if (!r.ok) {
-          let errorMsg = "Login failed"
+          let errorMsg = `Login failed: ${r.status} ${r.statusText}`
           try {
             const errJson = await r.json()
             if (errJson.error) errorMsg = errJson.error
