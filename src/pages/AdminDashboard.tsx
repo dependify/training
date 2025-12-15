@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,64 +30,40 @@ export default function AdminDashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [verifiedFilter, setVerifiedFilter] = useState<string>("all");
+  const [isSuperAdmin, setIsSuperAdmin] = useState<boolean>(false);
+  const [newAdminEmail, setNewAdminEmail] = useState("");
+  const [newAdminPassword, setNewAdminPassword] = useState("");
+  const [isGranting, setIsGranting] = useState(false);
   const { toast } = useToast();
   const navigate = useNavigate();
 
   useEffect(() => {
-    const checkAdminAndFetch = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (!session) {
-        navigate("/admin/login");
-        return;
-      }
-
-      const { data: roles } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", session.user.id)
-        .eq("role", "admin")
-        .maybeSingle();
-
-      if (!roles) {
-        await supabase.auth.signOut();
-        navigate("/admin/login");
-        return;
-      }
-
-      fetchRegistrations();
-    };
-
-    checkAdminAndFetch();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "SIGNED_OUT") {
-        navigate("/admin/login");
-      }
-    });
-
-    return () => subscription.unsubscribe();
+    const token = localStorage.getItem("admin_token");
+    if (!token) { navigate("/admin/login"); return }
+    try {
+      const part = token.split(".")[1] || "";
+      const base64 = part.replace(/-/g, "+").replace(/_/g, "/");
+      const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+      const payload = JSON.parse(atob(padded));
+      setIsSuperAdmin(!!payload.super);
+    } catch {
+      setIsSuperAdmin(localStorage.getItem("is_superadmin") === "true");
+    }
+    fetchRegistrations()
   }, [navigate]);
 
   const fetchRegistrations = async () => {
     try {
-      const { data, error } = await supabase
-        .from("registrations")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-      setRegistrations(data || []);
-      setFilteredRegistrations(data || []);
+      const token = localStorage.getItem("admin_token") || "";
+      const r = await fetch("/api/registrations", { headers: { Authorization: `Bearer ${token}` } })
+      if (!r.ok) throw new Error("Failed to load registrations")
+      const data = await r.json()
+      setRegistrations(data || [])
+      setFilteredRegistrations(data || [])
     } catch (error: any) {
-      console.error("Error fetching registrations:", error);
-      toast({
-        title: "Error",
-        description: "Failed to load registrations",
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: "Failed to load registrations", variant: "destructive" })
     } finally {
-      setIsLoading(false);
+      setIsLoading(false)
     }
   };
 
@@ -118,9 +93,26 @@ export default function AdminDashboard() {
   }, [searchTerm, verifiedFilter, registrations]);
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    localStorage.removeItem("admin_token");
+    localStorage.removeItem("is_superadmin");
     navigate("/admin/login");
   };
+
+  const grantAdmin = async () => {
+    try {
+      setIsGranting(true)
+      const token = localStorage.getItem("admin_token") || "";
+      const r = await fetch("/api/admin/grant", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ email: newAdminEmail, password: newAdminPassword }) })
+      if (!r.ok) throw new Error("Failed to grant admin")
+      setNewAdminEmail("")
+      setNewAdminPassword("")
+      toast({ title: "Admin granted", description: "New admin can now log in." })
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message || "Failed to grant admin", variant: "destructive" })
+    } finally {
+      setIsGranting(false)
+    }
+  }
 
   const exportToCSV = () => {
     const headers = [
@@ -170,6 +162,55 @@ export default function AdminDashboard() {
     verified: registrations.filter((r) => r.verified).length,
     pending: registrations.filter((r) => !r.verified).length,
   };
+
+  const addRegistration = async () => {
+    try {
+      const full_name = window.prompt("Full name") || ""
+      const email = window.prompt("Email") || ""
+      const phone = window.prompt("Phone") || ""
+      if (!full_name || !email || !phone) return
+      const token = localStorage.getItem("admin_token") || "";
+      const r = await fetch('/api/registrations', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ full_name, email, phone }) })
+      if (!r.ok) throw new Error('Failed to add registration')
+      await fetchRegistrations()
+      toast({ title: 'Registration added', description: full_name })
+    } catch (e: any) {
+      toast({ title: 'Error', description: e.message || 'Failed to add registration', variant: 'destructive' })
+    }
+  }
+
+  const editRegistration = async (reg: Registration) => {
+    try {
+      const full_name = window.prompt("Full name", reg.full_name) || reg.full_name
+      const email = window.prompt("Email", reg.email) || reg.email
+      const phone = window.prompt("Phone", reg.phone) || reg.phone
+      const organization = window.prompt("Organization", reg.organization || "") || reg.organization || null
+      const job_title = window.prompt("Job Title", reg.job_title || "") || reg.job_title || null
+      const city = window.prompt("City", reg.city || "") || reg.city || null
+      const country = window.prompt("Country", reg.country || "") || reg.country || null
+      const heard_about_us = window.prompt("How they heard", reg.heard_about_us || "") || reg.heard_about_us || null
+      const token = localStorage.getItem("admin_token") || "";
+      const r = await fetch(`/api/registrations/${reg.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ full_name, email, phone, organization, job_title, city, country, heard_about_us, future_interests: [] }) })
+      if (!r.ok) throw new Error('Failed to update registration')
+      await fetchRegistrations()
+      toast({ title: 'Registration updated', description: full_name })
+    } catch (e: any) {
+      toast({ title: 'Error', description: e.message || 'Failed to update registration', variant: 'destructive' })
+    }
+  }
+
+  const deleteRegistration = async (reg: Registration) => {
+    try {
+      if (!window.confirm(`Delete registration for ${reg.full_name}?`)) return
+      const token = localStorage.getItem("admin_token") || "";
+      const r = await fetch(`/api/registrations/${reg.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
+      if (!r.ok) throw new Error('Failed to delete registration')
+      await fetchRegistrations()
+      toast({ title: 'Registration deleted', description: reg.full_name })
+    } catch (e: any) {
+      toast({ title: 'Error', description: e.message || 'Failed to delete registration', variant: 'destructive' })
+    }
+  }
 
   if (isLoading) {
     return (
@@ -267,12 +308,36 @@ export default function AdminDashboard() {
           </CardContent>
         </Card>
 
-        {/* Table */}
+        {isSuperAdmin && (
+          <Card className="mb-6">
+            <CardHeader>
+              <CardTitle className="font-display">Approve Admin Registration</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid sm:grid-cols-3 gap-4 items-end">
+                <Input placeholder="Admin email" value={newAdminEmail} onChange={(e) => setNewAdminEmail(e.target.value)} />
+                <Input type="password" placeholder="Temporary password" value={newAdminPassword} onChange={(e) => setNewAdminPassword(e.target.value)} />
+                <Button onClick={grantAdmin} disabled={isGranting || !newAdminEmail || !newAdminPassword}>
+                  {isGranting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                  Approve Admin
+                </Button>
+              </div>
+              <p className="text-sm text-muted-foreground mt-2">Only the designated super admin can approve admin registrations.</p>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Registrations */}
         <Card>
           <CardHeader>
             <CardTitle className="font-display">
               Registrations ({filteredRegistrations.length})
             </CardTitle>
+            {isSuperAdmin && (
+              <div className="mt-2">
+                <Button onClick={addRegistration}>Add Registration</Button>
+              </div>
+            )}
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
@@ -286,12 +351,13 @@ export default function AdminDashboard() {
                     <TableHead>Location</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Date</TableHead>
+                    {isSuperAdmin && <TableHead>Actions</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredRegistrations.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={isSuperAdmin ? 8 : 7} className="text-center py-8 text-muted-foreground">
                         No registrations found
                       </TableCell>
                     </TableRow>
@@ -319,6 +385,14 @@ export default function AdminDashboard() {
                         <TableCell className="text-muted-foreground">
                           {format(new Date(reg.created_at), "MMM d, yyyy")}
                         </TableCell>
+                        {isSuperAdmin && (
+                          <TableCell>
+                            <div className="flex gap-2">
+                              <Button variant="outline" onClick={() => editRegistration(reg)}>Edit</Button>
+                              <Button variant="destructive" onClick={() => deleteRegistration(reg)}>Delete</Button>
+                            </div>
+                          </TableCell>
+                        )}
                       </TableRow>
                     ))
                   )}
@@ -327,7 +401,106 @@ export default function AdminDashboard() {
             </div>
           </CardContent>
         </Card>
+
+        {isSuperAdmin && (
+          <Card className="mt-6">
+            <CardHeader>
+              <CardTitle className="font-display">Manage Admins</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <AdminsManager />
+            </CardContent>
+          </Card>
+        )}
       </main>
     </div>
   );
+}
+
+function AdminsManager() {
+  const { toast } = useToast()
+  const [admins, setAdmins] = useState<Array<{id:string,email:string,is_superadmin:boolean,created_at:string}>>([])
+  const [loading, setLoading] = useState(true)
+  const token = localStorage.getItem("admin_token") || ""
+
+  const fetchAdmins = async () => {
+    try {
+      const r = await fetch('/api/admins', { headers: { Authorization: `Bearer ${token}` } })
+      if (!r.ok) throw new Error('Failed to load admins')
+      const j = await r.json()
+      setAdmins(j || [])
+    } catch (e:any) {
+      toast({ title:'Error', description:e.message || 'Failed to load admins', variant:'destructive' })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { fetchAdmins() }, [])
+
+  const updateAdmin = async (a:{id:string,email:string}) => {
+    try {
+      const email = window.prompt('Admin email', a.email) || a.email
+      const password = window.prompt('New password (leave blank to keep)') || ''
+      const body:any = {}
+      if (email) body.email = email
+      if (password) body.password = password
+      const r = await fetch(`/api/admin/${a.id}`, { method:'PUT', headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${token}` }, body: JSON.stringify(body) })
+      if (!r.ok) throw new Error('Failed to update admin')
+      await fetchAdmins()
+      toast({ title:'Admin updated', description: email })
+    } catch (e:any) {
+      toast({ title:'Error', description:e.message || 'Failed to update admin', variant:'destructive' })
+    }
+  }
+
+  const deleteAdmin = async (a:{id:string,email:string}) => {
+    try {
+      if (!window.confirm(`Delete admin ${a.email}?`)) return
+      const r = await fetch(`/api/admin/${a.id}`, { method:'DELETE', headers:{ Authorization:`Bearer ${token}` } })
+      if (!r.ok) throw new Error('Failed to delete admin')
+      await fetchAdmins()
+      toast({ title:'Admin deleted', description:a.email })
+    } catch (e:any) {
+      toast({ title:'Error', description:e.message || 'Failed to delete admin', variant:'destructive' })
+    }
+  }
+
+  if (loading) return <div className="text-muted-foreground">Loading admins...</div>
+
+  return (
+    <div className="overflow-x-auto">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Email</TableHead>
+            <TableHead>Role</TableHead>
+            <TableHead>Date</TableHead>
+            <TableHead>Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {admins.length === 0 ? (
+            <TableRow>
+              <TableCell colSpan={4} className="text-center py-6 text-muted-foreground">No admins found</TableCell>
+            </TableRow>
+          ) : (
+            admins.map((a) => (
+              <TableRow key={a.id}>
+                <TableCell>{a.email}</TableCell>
+                <TableCell>{a.is_superadmin ? 'Super Admin' : 'Admin'}</TableCell>
+                <TableCell className="text-muted-foreground">{format(new Date(a.created_at), 'MMM d, yyyy')}</TableCell>
+                <TableCell>
+                  <div className="flex gap-2">
+                    <Button variant="outline" onClick={() => updateAdmin(a)}>Edit</Button>
+                    <Button variant="destructive" onClick={() => deleteAdmin(a)}>Delete</Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))
+          )}
+        </TableBody>
+      </Table>
+    </div>
+  )
 }

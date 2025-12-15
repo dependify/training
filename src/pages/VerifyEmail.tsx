@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { CheckCircle2, XCircle, Loader2 } from "lucide-react";
@@ -22,18 +21,13 @@ export default function VerifyEmail() {
 
     const verifyEmail = async () => {
       try {
-        const { error } = await supabase.functions.invoke("verify-email", {
-          body: { token },
-        });
-
-        if (error) throw error;
-
-        setStatus("success");
-        setMessage("Your email has been verified successfully! You are now officially registered for the Digital Skills Mastery Course.");
+        const r = await fetch('/api/verify-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) })
+        if (!r.ok) throw new Error('Verification failed')
+        setStatus('success')
+        setMessage('Your email has been verified successfully! You are now officially registered for the Digital Skills Mastery Course.')
       } catch (error: any) {
-        console.error("Verification error:", error);
-        setStatus("error");
-        setMessage(error.message || "Verification failed. The link may be invalid or expired.");
+        setStatus('error')
+        setMessage(error.message || 'Verification failed. The link may be invalid or expired.')
       }
     };
 

@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -104,52 +103,19 @@ export default function Register() {
   const onSubmit = async (data: FormData) => {
     setIsSubmitting(true);
     try {
-      // Generate verification token
-      const verificationToken = crypto.randomUUID();
-
-      // Save to database with verification token
-      const { data: registration, error: dbError } = await supabase
-        .from("registrations")
-        .insert({
-          full_name: data.fullName,
-          email: data.email,
-          phone: data.phone,
-          organization: data.organization || null,
-          job_title: data.jobTitle || null,
-          street_address: data.streetAddress || null,
-          city: data.city || null,
-          country: data.country || null,
-          heard_about_us: data.heardAboutUs || null,
-          future_interests: data.futureInterests || [],
-          verification_token: verificationToken,
-          verified: false,
-        })
-        .select("id")
-        .single();
-
-      if (dbError) throw dbError;
-
-      // Send verification email
-      const { error: emailError } = await supabase.functions.invoke("send-registration-email", {
-        body: {
-          name: data.fullName,
-          email: data.email,
-          registrationId: registration.id,
-          verificationToken: verificationToken,
-        },
-      });
-
-      if (emailError) {
-        console.error("Email error:", emailError);
-      }
+      const r = await fetch('/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fullName: data.fullName, email: data.email, phone: data.phone, organization: data.organization, jobTitle: data.jobTitle, streetAddress: data.streetAddress, city: data.city, country: data.country, heardAboutUs: data.heardAboutUs, futureInterests: data.futureInterests }) })
+      if (!r.ok) throw new Error('Registration failed')
+      const resp = await r.json()
 
       setIsSuccess(true);
       toast({
         title: "Registration Submitted!",
-        description: "Please check your email to verify your registration.",
+        description: resp.emailSent ? "Please check your email to verify your registration." : "Email delivery is unavailable. Use the verification link below to complete registration.",
       });
+      if (!resp.emailSent && resp.verificationLink) {
+        navigator.clipboard?.writeText(resp.verificationLink).catch(() => {})
+      }
     } catch (error: any) {
-      console.error("Registration error:", error);
       toast({
         title: "Registration Failed",
         description: error.message || "Please try again later.",

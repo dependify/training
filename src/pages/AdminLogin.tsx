@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -30,62 +29,27 @@ export default function AdminLogin() {
   });
 
   useEffect(() => {
-    const checkAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        const { data: roles } = await supabase
-          .from("user_roles")
-          .select("role")
-          .eq("user_id", session.user.id)
-          .eq("role", "admin")
-          .maybeSingle();
-        
-        if (roles) {
-          navigate("/admin");
-        }
-      }
-    };
-    checkAuth();
+    const token = localStorage.getItem("admin_token");
+    if (token) navigate("/admin");
   }, [navigate]);
 
   const onSubmit = async (data: AuthForm) => {
     setIsLoading(true);
     try {
       if (isSignUp) {
-        const { error } = await supabase.auth.signUp({
-          email: data.email,
-          password: data.password,
-          options: { emailRedirectTo: `${window.location.origin}/admin/login` },
-        });
-        if (error) throw error;
-        toast({
-          title: "Account created!",
-          description: "Ask the system admin to grant you admin access, then log in.",
-        });
-        setIsSignUp(false);
-        form.reset();
+        const r = await fetch("/api/admin/seed", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: data.email, password: data.password }) })
+        if (!r.ok) throw new Error("Sign up failed")
+        toast({ title: "Account created!", description: "You can now sign in." })
+        setIsSignUp(false)
+        form.reset()
       } else {
-        const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-          email: data.email,
-          password: data.password,
-        });
-
-        if (authError) throw authError;
-
-        const { data: roles } = await supabase
-          .from("user_roles")
-          .select("role")
-          .eq("user_id", authData.user.id)
-          .eq("role", "admin")
-          .maybeSingle();
-
-        if (!roles) {
-          await supabase.auth.signOut();
-          throw new Error("Access denied. You do not have admin privileges.");
-        }
-
-        toast({ title: "Login successful", description: "Welcome back!" });
-        navigate("/admin");
+        const r = await fetch("/api/admin/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: data.email, password: data.password }) })
+        if (!r.ok) throw new Error("Login failed")
+        const j = await r.json()
+        localStorage.setItem("admin_token", j.token)
+        localStorage.setItem("is_superadmin", j.isSuperAdmin ? "true" : "false")
+        toast({ title: "Login successful", description: "Welcome back!" })
+        navigate("/admin")
       }
     } catch (error: any) {
       console.error("Auth error:", error);
