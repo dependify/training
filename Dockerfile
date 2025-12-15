@@ -12,7 +12,8 @@ ENV VITE_SUPABASE_PROJECT_ID=$VITE_SUPABASE_PROJECT_ID
 RUN npm run build
 
 FROM nginx:alpine
+RUN apk add --no-cache curl
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder /app/dist /usr/share/nginx/html
-EXPOSE 80
-HEALTHCHECK CMD wget -qO- http://localhost/ || exit 1
+EXPOSE 3000
+HEALTHCHECK CMD curl -fsS http://127.0.0.1:3000/ || exit 1
