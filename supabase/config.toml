@@ -1,0 +1,7 @@
+project_id = "cspehwoxnixxyuyuwjkh"
+
+[functions.send-registration-email]
+verify_jwt = false
+
+[functions.verify-email]
+verify_jwt = false
