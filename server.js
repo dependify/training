@@ -46,6 +46,7 @@ async function ensureSchema() {
   await c.query('CREATE TABLE IF NOT EXISTS admins (id uuid primary key default gen_random_uuid(), email text unique not null, password_hash text not null, created_at timestamptz not null default now())')
   await c.query('ALTER TABLE admins ADD COLUMN IF NOT EXISTS is_superadmin boolean not null default false')
   await c.query('CREATE TABLE IF NOT EXISTS registrations (id uuid primary key default gen_random_uuid(), full_name text not null, email text not null, phone text not null, organization text, job_title text, street_address text, city text, country text, heard_about_us text, future_interests text[] default array[]::text[], verification_token text, verified boolean not null default false, verified_at timestamptz, created_at timestamptz not null default now())')
+  await c.query('CREATE UNIQUE INDEX IF NOT EXISTS registrations_email_unique ON registrations (email)')
   await c.end()
 }
 
@@ -92,6 +93,70 @@ app.post('/api/verify-email', async (req, res) => {
     await c.query('update registrations set verified = true, verified_at = now(), verification_token = null where id = $1', [f.rows[0].id])
     await c.end()
     res.json({ success: true })
+  } catch (e) {
+    res.status(400).json({ error: String(e.message || e) })
+  }
+})
+
+app.post('/api/resend-verification', async (req, res) => {
+  try {
+    const email = String(req.body.email || '').toLowerCase()
+    if (!email) return res.status(400).json({ error: 'email required' })
+    const c = await db()
+    const f = await c.query('select id, full_name, verified, verification_token from registrations where email = $1', [email])
+    if (!f.rows[0]) { await c.end(); return res.status(404).json({ error: 'registration not found' }) }
+    if (f.rows[0].verified) { await c.end(); return res.status(400).json({ error: 'already verified' }) }
+    let token = f.rows[0].verification_token
+    if (!token) {
+      token = crypto.randomUUID()
+      await c.query('update registrations set verification_token = $1 where id = $2', [token, f.rows[0].id])
+    }
+    await c.end()
+    const transporter = nodemailer.createTransport({ host: 'smtp-relay.brevo.com', port: 587, secure: false, auth: { user: BREVO_SMTP_LOGIN, pass: BREVO_SMTP_PASSWORD } })
+    const link = `${APP_URL}/verify-email?token=${encodeURIComponent(token)}`
+    let emailSent = false
+    try {
+      if (BREVO_SMTP_LOGIN && BREVO_SMTP_PASSWORD) {
+        await transporter.sendMail({ from: SMTP_FROM, to: email, subject: 'Verify Your Email - Digital Skills Mastery Course', html: `<p>Hello ${f.rows[0].full_name}</p><p>Please verify your email: <a href=\"${link}\">Verify</a></p>` })
+        emailSent = true
+      }
+    } catch (e) {
+      emailSent = false
+    }
+    res.json({ success: true, emailSent, verificationLink: emailSent ? undefined : link })
+  } catch (e) {
+    res.status(400).json({ error: String(e.message || e) })
+  }
+})
+
+app.post('/api/admin/send-verification', auth, async (req, res) => {
+  try {
+    const payload = req.user || {}
+    if (!payload.super) return res.status(403).json({ error: 'forbidden' })
+    const id = String(req.body.id || '')
+    if (!id) return res.status(400).json({ error: 'id required' })
+    const c = await db()
+    const f = await c.query('select id, email, full_name, verified, verification_token from registrations where id = $1', [id])
+    if (!f.rows[0]) { await c.end(); return res.status(404).json({ error: 'registration not found' }) }
+    if (f.rows[0].verified) { await c.end(); return res.status(400).json({ error: 'already verified' }) }
+    let token = f.rows[0].verification_token
+    if (!token) {
+      token = crypto.randomUUID()
+      await c.query('update registrations set verification_token = $1 where id = $2', [token, f.rows[0].id])
+    }
+    await c.end()
+    const transporter = nodemailer.createTransport({ host: 'smtp-relay.brevo.com', port: 587, secure: false, auth: { user: BREVO_SMTP_LOGIN, pass: BREVO_SMTP_PASSWORD } })
+    const link = `${APP_URL}/verify-email?token=${encodeURIComponent(token)}`
+    let emailSent = false
+    try {
+      if (BREVO_SMTP_LOGIN && BREVO_SMTP_PASSWORD) {
+        await transporter.sendMail({ from: SMTP_FROM, to: f.rows[0].email, subject: 'Verify Your Email - Digital Skills Mastery Course', html: `<p>Hello ${f.rows[0].full_name}</p><p>Please verify your email: <a href=\"${link}\">Verify</a></p>` })
+        emailSent = true
+      }
+    } catch (e) {
+      emailSent = false
+    }
+    res.json({ success: true, emailSent, verificationLink: emailSent ? undefined : link })
   } catch (e) {
     res.status(400).json({ error: String(e.message || e) })
   }

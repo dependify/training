@@ -81,6 +81,8 @@ const heardAboutOptions = [
 export default function Register() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [registeredEmail, setRegisteredEmail] = useState("");
+  const [isResending, setIsResending] = useState(false);
   const { toast } = useToast();
   const navigate = useNavigate();
 
@@ -104,9 +106,15 @@ export default function Register() {
     setIsSubmitting(true);
     try {
       const r = await fetch('/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fullName: data.fullName, email: data.email, phone: data.phone, organization: data.organization, jobTitle: data.jobTitle, streetAddress: data.streetAddress, city: data.city, country: data.country, heardAboutUs: data.heardAboutUs, futureInterests: data.futureInterests }) })
-      if (!r.ok) throw new Error('Registration failed')
       const resp = await r.json()
+      if (!r.ok) {
+        if (resp.error?.includes('duplicate') || resp.error?.includes('unique')) {
+          throw new Error('This email is already registered. Please use a different email or request a new verification email.')
+        }
+        throw new Error(resp.error || 'Registration failed')
+      }
 
+      setRegisteredEmail(data.email);
       setIsSuccess(true);
       toast({
         title: "Registration Submitted!",
@@ -123,6 +131,29 @@ export default function Register() {
       });
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const resendVerification = async () => {
+    if (!registeredEmail) return;
+    setIsResending(true);
+    try {
+      const r = await fetch('/api/resend-verification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: registeredEmail })
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Failed to resend verification');
+      if (data.emailSent) {
+        toast({ title: "Email Sent!", description: "Verification email has been resent." });
+      } else {
+        toast({ title: "Email not configured", description: `Verification link: ${data.verificationLink}` });
+      }
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } finally {
+      setIsResending(false);
     }
   };
 
@@ -144,9 +175,15 @@ export default function Register() {
             <p className="text-sm text-muted-foreground mb-6">
               The link will expire in 24 hours. If you don't see the email, check your spam folder.
             </p>
-            <Button onClick={() => navigate("/")} variant="outline">
-              Return Home
-            </Button>
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <Button onClick={resendVerification} disabled={isResending} variant="default">
+                {isResending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                Resend Verification Email
+              </Button>
+              <Button onClick={() => navigate("/")} variant="outline">
+                Return Home
+              </Button>
+            </div>
           </CardContent>
         </Card>
       </div>
