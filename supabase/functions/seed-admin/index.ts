@@ -26,9 +26,9 @@ const handler = async (req: Request): Promise<Response> => {
     const password = (body?.password ?? "").toString();
     const role = (body?.role ?? "admin").toString();
 
-    if (!email || !password) {
+    if (!email) {
       return new Response(
-        JSON.stringify({ error: "Missing email or password" }),
+        JSON.stringify({ error: "Missing email" }),
         { status: 400, headers: { "Content-Type": "application/json", ...corsHeaders } }
       );
     }
@@ -39,24 +39,30 @@ const handler = async (req: Request): Promise<Response> => {
 
     let userId: string | null = null;
 
-    const created = await supabase.auth.admin.createUser({ email, password, email_confirm: true });
-    if (created.error) {
-      const list = await supabase.auth.admin.listUsers({ page: 1, perPage: 200 });
-      if (list.error) {
+    const list = await supabase.auth.admin.listUsers({ page: 1, perPage: 200 });
+    if (list.error) {
+      return new Response(
+        JSON.stringify({ error: "Failed to list users" }),
+        { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } }
+      );
+    }
+    const found = list.data?.users?.find((u: any) => (u.email || "").toLowerCase() === email);
+    if (found) {
+      userId = found.id;
+    } else {
+      if (!password) {
         return new Response(
-          JSON.stringify({ error: "Failed to create or locate user" }),
+          JSON.stringify({ error: "User not found and password missing to create" }),
+          { status: 400, headers: { "Content-Type": "application/json", ...corsHeaders } }
+        );
+      }
+      const created = await supabase.auth.admin.createUser({ email, password, email_confirm: true });
+      if (created.error) {
+        return new Response(
+          JSON.stringify({ error: "Failed to create user" }),
           { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } }
         );
       }
-      const found = list.data?.users?.find((u: any) => (u.email || "").toLowerCase() === email);
-      userId = found?.id ?? null;
-      if (!userId) {
-        return new Response(
-          JSON.stringify({ error: "User not found" }),
-          { status: 404, headers: { "Content-Type": "application/json", ...corsHeaders } }
-        );
-      }
-    } else {
       userId = created.data.user?.id ?? null;
     }
 
