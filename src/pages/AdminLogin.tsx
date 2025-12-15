@@ -38,13 +38,27 @@ export default function AdminLogin() {
     try {
       if (isSignUp) {
         const r = await fetch("/api/admin/seed", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: data.email, password: data.password }) })
-        if (!r.ok) throw new Error("Sign up failed")
+        if (!r.ok) {
+          let errorMsg = "Sign up failed"
+          try {
+            const errJson = await r.json()
+            if (errJson.error) errorMsg = errJson.error
+          } catch (e) {}
+          throw new Error(errorMsg)
+        }
         toast({ title: "Account created!", description: "You can now sign in." })
         setIsSignUp(false)
         form.reset()
       } else {
         const r = await fetch("/api/admin/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: data.email, password: data.password }) })
-        if (!r.ok) throw new Error("Login failed")
+        if (!r.ok) {
+          let errorMsg = "Login failed"
+          try {
+            const errJson = await r.json()
+            if (errJson.error) errorMsg = errJson.error
+          } catch (e) {}
+          throw new Error(errorMsg)
+        }
         const j = await r.json()
         localStorage.setItem("admin_token", j.token)
         localStorage.setItem("is_superadmin", j.isSuperAdmin ? "true" : "false")
