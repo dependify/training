@@ -7,7 +7,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Download, LogOut, Search, Users, CheckCircle, XCircle, Loader2 } from "lucide-react";
+import { Download, LogOut, Search, Users, CheckCircle, XCircle, Loader2, Key } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { format } from "date-fns";
 
 interface Registration {
@@ -34,6 +35,11 @@ export default function AdminDashboard() {
   const [newAdminEmail, setNewAdminEmail] = useState("");
   const [newAdminPassword, setNewAdminPassword] = useState("");
   const [isGranting, setIsGranting] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
   const { toast } = useToast();
   const navigate = useNavigate();
 
@@ -96,6 +102,39 @@ export default function AdminDashboard() {
     localStorage.removeItem("admin_token");
     localStorage.removeItem("is_superadmin");
     navigate("/admin/login");
+  };
+
+  const handleChangePassword = async () => {
+    if (newPassword !== confirmPassword) {
+      toast({ title: "Error", description: "New passwords do not match", variant: "destructive" });
+      return;
+    }
+    if (newPassword.length < 6) {
+      toast({ title: "Error", description: "Password must be at least 6 characters", variant: "destructive" });
+      return;
+    }
+    try {
+      setIsChangingPassword(true);
+      const token = localStorage.getItem("admin_token") || "";
+      const r = await fetch("/api/admin/change-password", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      if (!r.ok) {
+        const data = await r.json();
+        throw new Error(data.error || "Failed to change password");
+      }
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setShowChangePassword(false);
+      toast({ title: "Success", description: "Password changed successfully" });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message || "Failed to change password", variant: "destructive" });
+    } finally {
+      setIsChangingPassword(false);
+    }
   };
 
   const grantAdmin = async () => {

@@ -239,6 +239,26 @@ app.post('/api/admin/seed', async (req, res) => {
   }
 })
 
+app.put('/api/admin/change-password', auth, async (req, res) => {
+  try {
+    const payload = req.user || {}
+    const currentPassword = String(req.body.currentPassword || '')
+    const newPassword = String(req.body.newPassword || '')
+    if (!currentPassword || !newPassword) return res.status(400).json({ error: 'missing current or new password' })
+    const c = await db()
+    const f = await c.query('select password_hash from admins where id = $1', [payload.sub])
+    if (!f.rows[0]) { await c.end(); return res.status(404).json({ error: 'admin not found' }) }
+    const ok = await bcrypt.compare(currentPassword, f.rows[0].password_hash)
+    if (!ok) { await c.end(); return res.status(401).json({ error: 'current password is incorrect' }) }
+    const hash = await bcrypt.hash(newPassword, 10)
+    await c.query('update admins set password_hash = $1 where id = $2', [hash, payload.sub])
+    await c.end()
+    res.json({ success: true })
+  } catch (e) {
+    res.status(400).json({ error: String(e.message || e) })
+  }
+})
+
 app.post('/api/admin/grant', auth, async (req, res) => {
   try {
     const payload = req.user || {}
